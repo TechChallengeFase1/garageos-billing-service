@@ -1,0 +1,120 @@
+name: Infra
+
+# Terraform da pasta infra/ deste servico (ECR, banco, IRSA, SSM).
+#
+#   Pull Request   -> fmt + validate + plan. Nunca aplica.
+#   push main      -> apply
+#   Run workflow   -> plan, apply ou destroy
+#
+# Autenticacao por OIDC, com a mesma role dos repositorios da Fase 3. O repo
+# precisa estar em github_repos no bootstrap, senao o passo de OIDC falha
+# com "Not authorized to perform sts:AssumeRoleWithWebIdentity".
+#
+# Este workflow tem filtro de caminho, entao NAO pode ser check obrigatorio
+# no ruleset: um PR que nao toca infra/ ficaria esperando para sempre.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'infra/**'
+      - '.github/workflows/infra.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'infra/**'
+      - '.github/workflows/infra.yml'
+  workflow_dispatch:
+    inputs:
+      acao:
+        description: "plan (so mostra) | apply (cria) | destroy (apaga, inclusive dados)"
+        required: true
+        default: plan
+        type: choice
+        options: [plan, apply, destroy]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ROLE: arn:aws:iam::266380777968:role/garageos-github-actions
+  TF_VERSION: 1.15.7
+  AMBIENTE: producao
+
+# Um so grupo: PR e push disputam o mesmo state no S3.
+concurrency:
+  group: infra-billing
+  cancel-in-progress: false
+
+jobs:
+  terraform:
+    name: ${{ github.event_name == 'pull_request' && 'Validar infra' || 'Executar infra' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ github.event_name != 'pull_request' && 'producao' || '' }}
+
+    defaults:
+      run:
+        working-directory: infra
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Definir contexto
+        id: ctx
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.acao }}" = "apply" ]; then
+            echo "aplicar=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "aplicar=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Autenticar na AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE }}
+          role-session-name: tf-billing-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Instalar Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Formatacao
+        run: terraform fmt -check -diff
+
+      - name: Init
+        run: terraform init -input=false
+
+      - name: Validate
+        run: terraform validate -no-color
+
+      - name: Selecionar workspace
+        run: terraform workspace select -or-create "$AMBIENTE"
+
+      - name: Plan
+        if: inputs.acao != 'destroy'
+        run: terraform plan -input=false -no-color -var-file="$AMBIENTE.tfvars" -out=tfplan
+
+      - name: Resumo do plano
+        if: inputs.acao != 'destroy'
+        run: |
+          {
+            echo "### Terraform — billing ($AMBIENTE)"
+            echo '```'
+            terraform show -no-color tfplan | tail -40
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply
+        if: steps.ctx.outputs.aplicar == 'true'
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Destroy
+        if: github.event_name == 'workflow_dispatch' && inputs.acao == 'destroy'
+        run: terraform destroy -input=false -auto-approve -var-file="$AMBIENTE.tfvars"

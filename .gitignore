@@ -1,0 +1,16 @@
+# Terraform
+.terraform/
+.terraform.tfstate.lock.info
+# O state real vive no S3. Um state local teria senhas em texto puro.
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!producao.tfvars
+
+# .NET
+bin/
+obj/
+TestResults/
+.vs/
+*.user
