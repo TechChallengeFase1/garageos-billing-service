@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="GarageOS.Billing.Api/GarageOS.Billing.Api.csproj" />
+  <Project Path="GarageOS.Billing.Application/GarageOS.Billing.Application.csproj" />
+  <Project Path="GarageOS.Billing.Domain/GarageOS.Billing.Domain.csproj" />
+  <Project Path="GarageOS.Billing.Infrastructure/GarageOS.Billing.Infrastructure.csproj" />
+  <Project Path="GarageOS.Billing.IntegrationTests/GarageOS.Billing.IntegrationTests.csproj" />
+  <Project Path="GarageOS.Billing.UnitTests/GarageOS.Billing.UnitTests.csproj" />
+</Solution>
