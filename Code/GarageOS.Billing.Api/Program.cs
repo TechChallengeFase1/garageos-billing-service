@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using GarageOS.Billing.Api.Extensions;
 using GarageOS.Billing.Infrastructure;
+using GarageOS.Billing.Infrastructure.Mensageria;
 using Serilog;
 using Serilog.Events;
 using Serilog.Formatting.Compact;
@@ -26,6 +27,7 @@ builder.Services.AddControllers()
 builder.Services.AddSwaggerWithJwt();
 
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddMensageria(builder.Configuration);
 builder.Services.AddApplicationServices();
 builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddGarageOSHealthChecks();

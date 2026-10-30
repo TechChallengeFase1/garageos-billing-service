@@ -28,6 +28,7 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     {
         builder.UseSetting("DynamoDb:TableName", Tabela);
         builder.UseSetting("DynamoDb:CriarTabelaSeAusente", "true");
+        builder.UseSetting("Mensageria:Transporte", "InMemory");
 
         builder.ConfigureServices(services =>
         {

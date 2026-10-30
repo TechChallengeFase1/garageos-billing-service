@@ -7,6 +7,7 @@ using GarageOS.Billing.Domain.Enums;
 using GarageOS.Billing.Domain.Exceptions;
 using GarageOS.Billing.Domain.Repositories;
 using GarageOS.Billing.UnitTests.Helpers;
+using GarageOS.Contracts.V1;
 using Moq;
 
 namespace GarageOS.Billing.UnitTests.Application;
@@ -15,6 +16,7 @@ public class OrcamentoUseCasesTests
 {
     private readonly Mock<IOrcamentoRepository> _repository = new();
     private readonly Mock<IMetricasDeNegocio> _metricas = new();
+    private readonly Mock<IPublicadorDeEventos> _publicador = new();
 
     private static GerarOrcamentoRequest Pedido(Guid? osId = null) => new()
     {
@@ -140,7 +142,7 @@ public class OrcamentoUseCasesTests
         orcamento.Enviar();
         _repository.Setup(r => r.ObterPorIdAsync(orcamento.Id)).ReturnsAsync(orcamento);
 
-        var resposta = await new ResponderOrcamentoUseCase(_repository.Object, _metricas.Object)
+        var resposta = await new ResponderOrcamentoUseCase(_repository.Object, _metricas.Object, _publicador.Object)
             .ExecutarAsync(orcamento.Id, new ResponderOrcamentoRequest { Aprovado = aprovado });
 
         resposta.Status.Should().Be(esperado);
@@ -148,22 +150,35 @@ public class OrcamentoUseCasesTests
     }
 
     [Fact]
-    public async Task Responder_JaAprovado_NaoDeveGravar()
+    public async Task Responder_MesmaRespostaRepetida_NaoDeveGravarMasDevePublicarDeNovo()
     {
         var orcamento = Fabrica.OrcamentoAprovado();
         _repository.Setup(r => r.ObterPorIdAsync(orcamento.Id)).ReturnsAsync(orcamento);
 
-        var acao = () => new ResponderOrcamentoUseCase(_repository.Object, _metricas.Object)
+        await new ResponderOrcamentoUseCase(_repository.Object, _metricas.Object, _publicador.Object)
             .ExecutarAsync(orcamento.Id, new ResponderOrcamentoRequest { Aprovado = true });
 
-        await acao.Should().ThrowAsync<TransicaoDeStatusInvalidaException>();
         _repository.Verify(r => r.AtualizarAsync(It.IsAny<Orcamento>()), Times.Never);
+        _publicador.Verify(p => p.PublicarAsync(It.IsAny<OrcamentoAprovado>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Responder_MudarDeIdeia_DeveLancar()
+    {
+        var orcamento = Fabrica.OrcamentoAprovado();
+        _repository.Setup(r => r.ObterPorIdAsync(orcamento.Id)).ReturnsAsync(orcamento);
+
+        var acao = () => new ResponderOrcamentoUseCase(_repository.Object, _metricas.Object, _publicador.Object)
+            .ExecutarAsync(orcamento.Id, new ResponderOrcamentoRequest { Aprovado = false });
+
+        await acao.Should().ThrowAsync<TransicaoDeStatusInvalidaException>();
+        _publicador.Verify(p => p.PublicarAsync(It.IsAny<OrcamentoRecusado>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
     public async Task Responder_Inexistente_DeveLancar()
     {
-        var acao = () => new ResponderOrcamentoUseCase(_repository.Object, _metricas.Object)
+        var acao = () => new ResponderOrcamentoUseCase(_repository.Object, _metricas.Object, _publicador.Object)
             .ExecutarAsync(Guid.NewGuid(), new ResponderOrcamentoRequest());
 
         await acao.Should().ThrowAsync<OrcamentoNaoEncontradoException>();

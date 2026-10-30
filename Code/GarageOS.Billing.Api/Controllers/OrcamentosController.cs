@@ -27,6 +27,7 @@ public class OrcamentosController : ControllerBase
     private readonly CancelarOrcamentoUseCase _cancelarUseCase;
     private readonly CriarPagamentoUseCase _criarPagamentoUseCase;
     private readonly ConsultarPagamentosUseCase _consultarPagamentosUseCase;
+    private readonly RegistrarResultadoDoPagamentoUseCase _registrarResultadoUseCase;
 
     /// <summary>Inicializa o controller com os use cases de orçamento e pagamento</summary>
     public OrcamentosController(
@@ -36,7 +37,8 @@ public class OrcamentosController : ControllerBase
         ResponderOrcamentoUseCase responderUseCase,
         CancelarOrcamentoUseCase cancelarUseCase,
         CriarPagamentoUseCase criarPagamentoUseCase,
-        ConsultarPagamentosUseCase consultarPagamentosUseCase)
+        ConsultarPagamentosUseCase consultarPagamentosUseCase,
+        RegistrarResultadoDoPagamentoUseCase registrarResultadoUseCase)
     {
         _gerarUseCase = gerarUseCase;
         _obterUseCase = obterUseCase;
@@ -45,6 +47,7 @@ public class OrcamentosController : ControllerBase
         _cancelarUseCase = cancelarUseCase;
         _criarPagamentoUseCase = criarPagamentoUseCase;
         _consultarPagamentosUseCase = consultarPagamentosUseCase;
+        _registrarResultadoUseCase = registrarResultadoUseCase;
     }
 
     /// <summary>Gera o orçamento de uma ordem de serviço</summary>
@@ -213,6 +216,26 @@ public class OrcamentosController : ControllerBase
     public async Task<IActionResult> ObterPagamento(Guid id, Guid pagamentoId)
     {
         return Ok(await _consultarPagamentosUseCase.ObterAsync(id, pagamentoId));
+    }
+
+    /// <summary>Simula o resultado de um pagamento (até a integração com o Mercado Pago)</summary>
+    /// <remarks>
+    /// Faz o papel que o webhook do Mercado Pago vai ter na etapa 6: informa se a
+    /// cobrança foi paga ou recusada e avisa a saga (PagamentoConfirmado ou
+    /// PagamentoRecusado). Idempotente: o mesmo resultado repetido não muda nada.
+    /// Usado na demonstração para forçar uma recusa e mostrar a compensação.
+    /// </remarks>
+    /// <response code="200">Resultado registrado</response>
+    /// <response code="404">Pagamento não encontrado</response>
+    /// <response code="409">O pagamento já tem outro resultado</response>
+    [HttpPost("{id:guid}/pagamentos/{pagamentoId:guid}/simular")]
+    [Authorize(Policy = Politicas.Admin)]
+    [ProducesResponseType(typeof(PagamentoResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SimularPagamento(Guid id, Guid pagamentoId, [FromBody] ResultadoDoPagamentoRequest request)
+    {
+        return Ok(await _registrarResultadoUseCase.ExecutarAsync(id, pagamentoId, request));
     }
 
     /// <summary>Admin acessa tudo; o cliente, só o que é dele</summary>
