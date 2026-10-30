@@ -149,7 +149,7 @@ public class OrcamentosControllerTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task PATCH_Resposta_AprovarDuasVezes_DeveRetornar409()
+    public async Task PATCH_Resposta_AprovarDuasVezes_DeveSerIdempotente()
     {
         var orcamento = await GerarAsync();
         await _client.PostAsync($"/api/orcamentos/{orcamento.Id}/enviar", null);
@@ -157,7 +157,20 @@ public class OrcamentosControllerTests : IClassFixture<ApiFactory>
 
         var segunda = await ResponderAsync(orcamento.Id, aprovado: true);
 
-        segunda.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        segunda.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await segunda.Content.ReadFromJsonAsync<OrcamentoResponse>(JsonDefaults.Options))!.Status.Should().Be("Aprovado");
+    }
+
+    [Fact]
+    public async Task PATCH_Resposta_MudarDeIdeia_DeveRetornar409()
+    {
+        var orcamento = await GerarAsync();
+        await _client.PostAsync($"/api/orcamentos/{orcamento.Id}/enviar", null);
+        await ResponderAsync(orcamento.Id, aprovado: true);
+
+        var recusa = await ResponderAsync(orcamento.Id, aprovado: false);
+
+        recusa.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
     [Fact]

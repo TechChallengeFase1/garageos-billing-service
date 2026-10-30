@@ -21,6 +21,13 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       Swagger__Enabled: "true"
+      # Rodando um servico sozinho, a mensageria fica em memoria: os eventos
+      # da saga nao saem do processo. Para o fluxo entre servicos, aponte os
+      # tres para o mesmo LocalStack (Mensageria__Transporte=AmazonSqs e
+      # Mensageria__ServiceUrl=http://host.docker.internal:4566).
+      Mensageria__Transporte: ${MENSAGERIA_TRANSPORTE:-InMemory}
+      Mensageria__ServiceUrl: ${MENSAGERIA_SERVICE_URL:-}
+      Mensageria__Ambiente: local
       DynamoDb__ServiceUrl: http://dynamodb:8000
       DynamoDb__TableName: garageos-local-billing
       DynamoDb__CriarTabelaSeAusente: "true"
