@@ -1,0 +1,46 @@
+name: CI
+
+# Build e testes a cada PR e a cada push na main. O nome do job ("Build and
+# tests") e o check exigido pelo ruleset da main: renomea-lo trava o merge.
+#
+# Sem filtro de caminho de proposito: um check obrigatorio que nao roda (PR que
+# so mexe no README, por exemplo) fica eternamente em "Expected" e trava o PR.
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-test:
+    name: Build and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore Code/GarageOS.Billing.slnx
+
+      - name: Build
+        run: dotnet build Code/GarageOS.Billing.slnx --configuration Release --no-restore
+
+      - name: Unit tests
+        run: dotnet test Code/GarageOS.Billing.UnitTests/GarageOS.Billing.UnitTests.csproj --configuration Release --no-build
+
+      # Testcontainers: o runner do GitHub ja tem Docker.
+      - name: Integration tests
+        run: dotnet test Code/GarageOS.Billing.IntegrationTests/GarageOS.Billing.IntegrationTests.csproj --configuration Release --no-build
+
+      - name: Docker build
+        run: docker build -t garageos-billing:${{ github.sha }} .

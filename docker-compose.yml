@@ -1,0 +1,40 @@
+# Ambiente local do Billing Service: a API e o DynamoDB Local.
+# Sobe com `docker compose up -d --build`. Swagger em http://localhost:8081/swagger
+#
+# DynamoDb__CriarTabelaSeAusente cria a tabela na subida, com a mesma chave e
+# os mesmos indices do infra/dynamodb.tf. So no local: na AWS quem cria a
+# tabela e o Terraform, e a role do pod nem tem permissao de CreateTable.
+services:
+  dynamodb:
+    image: amazon/dynamodb-local:2.5.4
+    container_name: garageos-billing-dynamodb
+    command: "-jar DynamoDBLocal.jar -sharedDb -inMemory"
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: garageos-billing-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Swagger__Enabled: "true"
+      DynamoDb__ServiceUrl: http://dynamodb:8000
+      DynamoDb__TableName: garageos-local-billing
+      DynamoDb__CriarTabelaSeAusente: "true"
+      # O SDK exige credenciais mesmo no DynamoDB Local; qualquer valor serve.
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      AWS_REGION: us-east-1
+      Jwt__SecretKey: ${JWT_SECRET_KEY}
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE}
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY:-}
+      NEW_RELIC_APP_NAME: ${NEW_RELIC_APP_NAME:-garageos-billing (local)}
+    ports:
+      - "8081:8080"
+    depends_on:
+      - dynamodb
+    restart: unless-stopped
