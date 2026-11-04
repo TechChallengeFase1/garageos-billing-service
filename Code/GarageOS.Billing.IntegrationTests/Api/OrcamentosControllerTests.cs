@@ -132,7 +132,8 @@ public class OrcamentosControllerTests : IClassFixture<ApiFactory>
         var lista = await _client.GetFromJsonAsync<List<PagamentoResponse>>($"/api/orcamentos/{orcamento.Id}/pagamentos", JsonDefaults.Options);
         lista.Should().ContainSingle(p => p.Id == pagamento.Id);
         var lido = await _client.GetFromJsonAsync<PagamentoResponse>($"/api/orcamentos/{orcamento.Id}/pagamentos/{pagamento.Id}", JsonDefaults.Options);
-        lido!.Status.Should().Be("Criado");
+        lido!.Status.Should().Be("Pendente");
+        lido.LinkPagamento.Should().NotBeNullOrWhiteSpace();
     }
 
     [Fact]

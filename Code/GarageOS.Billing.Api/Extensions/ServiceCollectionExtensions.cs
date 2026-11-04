@@ -30,6 +30,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ConsultarPagamentosUseCase>();
         services.AddScoped<RegistrarResultadoDoPagamentoUseCase>();
         services.AddScoped<EstornarPagamentoUseCase>();
+        services.AddScoped<InvalidarCobrancasUseCase>();
+        services.AddScoped<ProcessarPagamentoDoProvedorUseCase>();
 
         return services;
     }

@@ -43,6 +43,12 @@ public class ExceptionMiddleware
             _logger.LogWarning(ex, "Conflito: {Message}", ex.Message);
             await EscreverRespostaAsync(context, HttpStatusCode.Conflict, ex.Message);
         }
+        catch (GatewayDePagamentoException ex)
+        {
+            // 503 no webhook faz o Mercado Pago reentregar a notificação mais tarde.
+            _logger.LogWarning(ex, "Provedor de pagamento: {Message}", ex.Message);
+            await EscreverRespostaAsync(context, HttpStatusCode.ServiceUnavailable, ex.Message);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Erro inesperado: {Message}", ex.Message);

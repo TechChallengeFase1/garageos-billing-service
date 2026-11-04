@@ -1,6 +1,7 @@
 using Amazon.DynamoDBv2;
 using GarageOS.Billing.Application.Abstractions;
 using GarageOS.Billing.Domain.Repositories;
+using GarageOS.Billing.Infrastructure.ExternalServices;
 using GarageOS.Billing.Infrastructure.Observabilidade;
 using GarageOS.Billing.Infrastructure.Persistencia;
 using GarageOS.Billing.Infrastructure.Repositories;
@@ -29,6 +30,22 @@ public static class DependencyInjection
             : new AmazonDynamoDBClient(new AmazonDynamoDBConfig { ServiceURL = serviceUrl }));
 
         services.AddHostedService<InicializadorDaTabela>();
+
+        services.Configure<PagamentosOptions>(configuration.GetSection(PagamentosOptions.Secao));
+        services.Configure<MercadoPagoOptions>(configuration.GetSection(MercadoPagoOptions.Secao));
+        services.AddSingleton<IValidadorDeWebhook, ValidadorDeWebhookMercadoPago>();
+
+        var pagamentos = configuration.GetSection(PagamentosOptions.Secao).Get<PagamentosOptions>() ?? new PagamentosOptions();
+        if (pagamentos.Falso)
+        {
+            services.AddSingleton<IGatewayDePagamento, FakeGatewayDePagamento>();
+        }
+        else
+        {
+            var baseUrl = configuration[$"{MercadoPagoOptions.Secao}:{nameof(MercadoPagoOptions.BaseUrl)}"] ?? new MercadoPagoOptions().BaseUrl;
+            services.AddHttpClient<IGatewayDePagamento, MercadoPagoGateway>(client => client.BaseAddress = new Uri(baseUrl))
+                .AddStandardResilienceHandler();
+        }
 
         services.AddScoped<IOrcamentoRepository, OrcamentoRepository>();
         services.AddScoped<IPagamentoRepository, PagamentoRepository>();

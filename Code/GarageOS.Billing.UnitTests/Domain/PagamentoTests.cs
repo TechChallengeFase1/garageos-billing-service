@@ -33,10 +33,13 @@ public class PagamentoTests
     {
         var pagamento = Novo();
 
-        pagamento.AguardarPagamento("mp-123");
+        pagamento.AguardarPagamento("pref-1", "https://mp.test/pagar");
+        pagamento.VincularPagamentoExterno("mp-123");
         pagamento.Confirmar();
 
         pagamento.Status.Should().Be(StatusPagamento.Confirmado);
+        pagamento.PreferenciaId.Should().Be("pref-1");
+        pagamento.LinkPagamento.Should().Be("https://mp.test/pagar");
         pagamento.ReferenciaExterna.Should().Be("mp-123");
         pagamento.EmAberto.Should().BeTrue();
     }
@@ -45,6 +48,14 @@ public class PagamentoTests
     public void AguardarPagamento_SemReferencia_DeveLancar()
     {
         var acao = () => Novo().AguardarPagamento("");
+
+        acao.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void VincularPagamentoExterno_SemReferencia_DeveLancar()
+    {
+        var acao = () => Novo().VincularPagamentoExterno(" ");
 
         acao.Should().Throw<ArgumentException>();
     }

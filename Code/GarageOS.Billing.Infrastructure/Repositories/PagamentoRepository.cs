@@ -13,8 +13,8 @@ namespace GarageOS.Billing.Infrastructure.Repositories;
 /// <summary>Pagamentos ficam na mesma partição do orçamento (PK = ORC#id)</summary>
 /// <remarks>
 /// Listar os pagamentos de um orçamento é uma Query numa partição só, sem
-/// índice. O id do Mercado Pago, quando existir (etapa 6), vai no atributo
-/// mpPaymentId, que alimenta o índice por-pagamento-mp usado pelo webhook.
+/// índice. O id do pagamento no Mercado Pago vai no atributo mpPaymentId, que
+/// alimenta o índice por-pagamento-mp.
 /// </remarks>
 public class PagamentoRepository : IPagamentoRepository
 {
@@ -111,6 +111,8 @@ public class PagamentoRepository : IPagamentoRepository
         item["atualizadoEm"] = Data(p.AtualizadoEm);
         item["version"] = Numero(versao);
         TextoOpcional(item, "mpPaymentId", p.ReferenciaExterna);
+        TextoOpcional(item, "preferenciaId", p.PreferenciaId);
+        TextoOpcional(item, "linkPagamento", p.LinkPagamento);
         return item;
     }
 
@@ -123,5 +125,7 @@ public class PagamentoRepository : IPagamentoRepository
         item.LerTextoOpcional("mpPaymentId"),
         item.LerData("criadoEm"),
         item.LerData("atualizadoEm"),
-        item.LerLong("version"));
+        item.LerLong("version"),
+        item.LerTextoOpcional("preferenciaId"),
+        item.LerTextoOpcional("linkPagamento"));
 }

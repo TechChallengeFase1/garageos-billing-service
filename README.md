@@ -8,7 +8,7 @@ Dono dos orçamentos das ordens de serviço e das cobranças. É o serviço com 
 |---|---|
 | Banco | Amazon DynamoDB, tabela única on-demand (ADR 0007) |
 | Mensageria | Amazon SQS/SNS com MassTransit 8.x (etapa 5) |
-| Pagamento | Mercado Pago (etapa 6) |
+| Pagamento | Mercado Pago, Checkout Pro |
 | Papel na saga | Participante: gera, cancela e cobra o orçamento |
 | Namespace no EKS | `garageos-billing` |
 
@@ -27,6 +27,9 @@ As decisões de arquitetura estão nos ADRs 0004 a 0007 em
 | `POST` | `/api/orcamentos/{id}/cancelar` | Admin | Cancelamento (compensação). Idempotente |
 | `POST` | `/api/orcamentos/{id}/pagamentos` | Admin | Abre a cobrança de um orçamento aprovado. Idempotente |
 | `GET` | `/api/orcamentos/{id}/pagamentos[/{pagamentoId}]` | Admin | Cobranças do orçamento |
+| `POST` | `/api/orcamentos/{id}/pagamentos/{pagamentoId}/verificar` | Admin | Consulta o resultado no Mercado Pago, sem depender do webhook |
+| `POST` | `/api/orcamentos/{id}/pagamentos/{pagamentoId}/simular` | Admin | Informa o resultado à mão. Só com `Pagamentos:Provedor=Fake`; senão 404 |
+| `POST` | `/api/webhooks/mercadopago` | pública, com assinatura | Notificações de pagamento do Mercado Pago |
 | `GET` | `/health/live` · `/health/ready` | pública | Health checks (o ready faz `DescribeTable`) |
 
 "Cliente dono" é o token do login por CPF cujo `sub` é o `clienteId` do orçamento.
@@ -40,6 +43,62 @@ As decisões de arquitetura estão nos ADRs 0004 a 0007 em
 | `OS#{osId}` | `ORCAMENTO` | Marcador: garante um orçamento por OS |
 
 Orçamento e marcador são gravados na mesma transação com `attribute_not_exists`, o que torna a geração idempotente mesmo com requisições simultâneas. Alterações usam concorrência otimista pelo atributo `version`.
+
+## Pagamento: Mercado Pago
+
+O cliente paga no **Checkout Pro**, na página do Mercado Pago, então nenhum dado de cartão passa por este serviço. O serviço conhece só a interface `IGatewayDePagamento`; `Pagamentos:Provedor` escolhe entre `MercadoPago` e `Fake`.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as Saga (OS)
+    participant B as Billing
+    participant MP as Mercado Pago
+    participant C as Cliente
+    S->>B: SolicitarPagamento
+    B->>MP: POST /checkout/preferences
+    MP-->>B: id e init_point
+    B-->>S: PagamentoCriado
+    C->>MP: paga pelo linkPagamento
+    MP->>B: webhook (só o id do pagamento)
+    B->>MP: GET /v1/payments/{id}
+    MP-->>B: status e external_reference
+    B-->>S: PagamentoConfirmado ou PagamentoRecusado
+```
+
+| Status no Mercado Pago | Efeito |
+|---|---|
+| `approved` | `Confirmado`, avisa a saga |
+| `rejected`, `cancelled` | `Recusado`, avisa a saga (que compensa) |
+| `refunded`, `charged_back` | `Estornado` |
+| demais (`pending`, `in_process`) | espera a próxima notificação |
+| `approved` numa cobrança já recusada ou expirada | devolve o valor: a OS já foi compensada |
+
+**Decisões:**
+
+- **O corpo da notificação não é confiável.** O webhook valida a assinatura `x-signature` (HMAC-SHA256) e depois consulta o pagamento na API. Assim, um aviso forjado ou repetido não muda nada: o que vale é a resposta do Mercado Pago.
+- **Idempotente pela regra de negócio, não por tabela de deduplicação.** Reaplicar o mesmo resultado não grava nada. Consulta e transição são seguras de repetir, e concorrência cai no controle de versão do item, com o Mercado Pago reentregando.
+- **`external_reference` = `{orcamentoId}:{pagamentoId}`**, a chave do item no DynamoDB, para achar o pagamento sem índice.
+- **`binary_mode`**: aprova ou recusa na hora, sem "em análise" segurando a saga.
+- **Validade de 10 minutos**, igual ao prazo de pagamento da saga. No cancelamento, a preferência é expirada.
+- **Provedor fora do ar**: 503 no webhook (ele reentrega); retry do MassTransit nos consumidores. Persistindo, o prazo da saga compensa.
+
+A API de preferências ignora `X-Idempotency-Key` (verificado no sandbox), então a chave só é enviada no estorno.
+
+### Credenciais
+
+Ficam no segredo `garageos-producao-billing/mercadopago`, nunca no repositório:
+
+```bash
+aws secretsmanager put-secret-value --secret-id garageos-producao-billing/mercadopago \
+  --secret-string '{"accessToken":"...","publicKey":"...","webhookSecret":"..."}'
+```
+
+`webhookSecret` é a assinatura secreta do painel (Suas integrações → Webhooks). `MercadoPago:NotificationUrl` é `{url do API Gateway}/billing/api/webhooks/mercadopago?source_news=webhooks`.
+
+### Testar no sandbox
+
+Abra o `linkPagamento` numa janela anônima, logado com a conta **compradora** de teste (a vendedora não pode pagar a si mesma). Cartão Mastercard `5031 4332 1540 6351`, CVV `123`, validade `11/30`, CPF `12345678909`. O nome no cartão decide o resultado: `APRO` aprova, `OTHE` recusa.
 
 ## Como rodar localmente
 

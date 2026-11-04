@@ -1,3 +1,4 @@
+using GarageOS.Billing.Application.Abstractions;
 using GarageOS.Billing.Application.DTOs.Pagamentos;
 using GarageOS.Billing.Application.Mappers;
 using GarageOS.Billing.Domain.Enums;
@@ -8,16 +9,19 @@ namespace GarageOS.Billing.Application.UseCases.Pagamentos;
 
 /// <summary>Devolve ao cliente um pagamento confirmado (compensação da saga)</summary>
 /// <remarks>
-/// Idempotente: estornar um pagamento já estornado não grava nada. A devolução
-/// de verdade no Mercado Pago entra na etapa 6.
+/// Primeiro devolve no provedor, depois grava. Se a gravação falhar, a repetição
+/// chama o provedor de novo com a mesma chave de idempotência, sem estorno em dobro.
+/// Estornar um pagamento já estornado não faz nada.
 /// </remarks>
 public class EstornarPagamentoUseCase
 {
     private readonly IPagamentoRepository _pagamentos;
+    private readonly IGatewayDePagamento _gateway;
 
-    public EstornarPagamentoUseCase(IPagamentoRepository pagamentos)
+    public EstornarPagamentoUseCase(IPagamentoRepository pagamentos, IGatewayDePagamento gateway)
     {
         _pagamentos = pagamentos;
+        _gateway = gateway;
     }
 
     /// <returns>O pagamento, ou null se não existe</returns>
@@ -29,6 +33,9 @@ public class EstornarPagamentoUseCase
 
         if (pagamento.Status == StatusPagamento.Confirmado)
         {
+            if (!string.IsNullOrWhiteSpace(pagamento.ReferenciaExterna))
+                await _gateway.EstornarAsync(pagamento.ReferenciaExterna, $"estorno-{pagamento.Id}");
+
             pagamento.Estornar();
             await _pagamentos.AtualizarAsync(pagamento);
         }
