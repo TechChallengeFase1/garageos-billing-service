@@ -6,7 +6,9 @@ using GarageOS.Billing.Application.UseCases.Orcamentos;
 using GarageOS.Billing.Application.UseCases.Pagamentos;
 using GarageOS.Billing.Application.Validators.Orcamentos;
 using Microsoft.AspNetCore.Authorization;
+using GarageOS.Billing.Infrastructure.ExternalServices;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace GarageOS.Billing.Api.Controllers;
 
@@ -28,6 +30,8 @@ public class OrcamentosController : ControllerBase
     private readonly CriarPagamentoUseCase _criarPagamentoUseCase;
     private readonly ConsultarPagamentosUseCase _consultarPagamentosUseCase;
     private readonly RegistrarResultadoDoPagamentoUseCase _registrarResultadoUseCase;
+    private readonly ProcessarPagamentoDoProvedorUseCase _processarPagamentoUseCase;
+    private readonly PagamentosOptions _pagamentos;
 
     /// <summary>Inicializa o controller com os use cases de orçamento e pagamento</summary>
     public OrcamentosController(
@@ -38,7 +42,9 @@ public class OrcamentosController : ControllerBase
         CancelarOrcamentoUseCase cancelarUseCase,
         CriarPagamentoUseCase criarPagamentoUseCase,
         ConsultarPagamentosUseCase consultarPagamentosUseCase,
-        RegistrarResultadoDoPagamentoUseCase registrarResultadoUseCase)
+        RegistrarResultadoDoPagamentoUseCase registrarResultadoUseCase,
+        ProcessarPagamentoDoProvedorUseCase processarPagamentoUseCase,
+        IOptions<PagamentosOptions> pagamentos)
     {
         _gerarUseCase = gerarUseCase;
         _obterUseCase = obterUseCase;
@@ -48,6 +54,8 @@ public class OrcamentosController : ControllerBase
         _criarPagamentoUseCase = criarPagamentoUseCase;
         _consultarPagamentosUseCase = consultarPagamentosUseCase;
         _registrarResultadoUseCase = registrarResultadoUseCase;
+        _processarPagamentoUseCase = processarPagamentoUseCase;
+        _pagamentos = pagamentos.Value;
     }
 
     /// <summary>Gera o orçamento de uma ordem de serviço</summary>
@@ -173,12 +181,13 @@ public class OrcamentosController : ControllerBase
     /// <summary>Abre a cobrança de um orçamento aprovado</summary>
     /// <remarks>
     /// Idempotente: se já há uma cobrança em aberto, devolve essa com 200.
-    /// A integração com o Mercado Pago entra na etapa 6.
+    /// A resposta traz o linkPagamento, que o cliente abre para pagar no Mercado Pago.
     /// </remarks>
     /// <response code="201">Cobrança aberta</response>
     /// <response code="200">Já havia uma cobrança em aberto</response>
     /// <response code="404">Orçamento não encontrado</response>
     /// <response code="409">O orçamento não está aprovado</response>
+    /// <response code="503">Mercado Pago indisponível</response>
     [HttpPost("{id:guid}/pagamentos")]
     [Authorize(Policy = Politicas.Admin)]
     [ProducesResponseType(typeof(PagamentoResponse), StatusCodes.Status201Created)]
@@ -218,15 +227,35 @@ public class OrcamentosController : ControllerBase
         return Ok(await _consultarPagamentosUseCase.ObterAsync(id, pagamentoId));
     }
 
-    /// <summary>Simula o resultado de um pagamento (até a integração com o Mercado Pago)</summary>
+    /// <summary>Verifica no Mercado Pago o resultado de uma cobrança</summary>
     /// <remarks>
-    /// Faz o papel que o webhook do Mercado Pago vai ter na etapa 6: informa se a
-    /// cobrança foi paga ou recusada e avisa a saga (PagamentoConfirmado ou
-    /// PagamentoRecusado). Idempotente: o mesmo resultado repetido não muda nada.
-    /// Usado na demonstração para forçar uma recusa e mostrar a compensação.
+    /// Consulta os pagamentos da cobrança na API do provedor e aplica o resultado,
+    /// sem depender do webhook: serve para o caso de a notificação não ter chegado.
+    /// </remarks>
+    /// <response code="200">Situação atual do pagamento</response>
+    /// <response code="404">Pagamento não encontrado</response>
+    /// <response code="503">Mercado Pago indisponível</response>
+    [HttpPost("{id:guid}/pagamentos/{pagamentoId:guid}/verificar")]
+    [Authorize(Policy = Politicas.Admin)]
+    [ProducesResponseType(typeof(PagamentoResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> VerificarPagamento(Guid id, Guid pagamentoId)
+    {
+        await _processarPagamentoUseCase.VerificarAsync(id, pagamentoId);
+
+        return Ok(await _consultarPagamentosUseCase.ObterAsync(id, pagamentoId));
+    }
+
+    /// <summary>Simula o resultado de um pagamento (só com Pagamentos:Provedor=Fake)</summary>
+    /// <remarks>
+    /// Faz o papel do webhook quando não há Mercado Pago: informa se a cobrança foi
+    /// paga ou recusada e avisa a saga. Idempotente: o mesmo resultado repetido não
+    /// muda nada. Com o provedor real esta rota responde 404, para ninguém marcar
+    /// como paga uma cobrança que não foi.
     /// </remarks>
     /// <response code="200">Resultado registrado</response>
-    /// <response code="404">Pagamento não encontrado</response>
+    /// <response code="404">Pagamento não encontrado, ou provedor real em uso</response>
     /// <response code="409">O pagamento já tem outro resultado</response>
     [HttpPost("{id:guid}/pagamentos/{pagamentoId:guid}/simular")]
     [Authorize(Policy = Politicas.Admin)]
@@ -235,6 +264,9 @@ public class OrcamentosController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> SimularPagamento(Guid id, Guid pagamentoId, [FromBody] ResultadoDoPagamentoRequest request)
     {
+        if (!_pagamentos.Falso)
+            return NotFound();
+
         return Ok(await _registrarResultadoUseCase.ExecutarAsync(id, pagamentoId, request));
     }
 

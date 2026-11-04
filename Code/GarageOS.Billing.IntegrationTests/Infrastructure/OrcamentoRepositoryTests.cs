@@ -84,7 +84,8 @@ public class OrcamentoRepositoryTests : IClassFixture<ApiFactory>
         var pagamento = new Pagamento(orcamento.Id, orcamento.OrdemDeServicoId, orcamento.Total);
 
         await _pagamentos.AdicionarAsync(pagamento);
-        pagamento.AguardarPagamento("mp-777");
+        pagamento.AguardarPagamento("pref-777", "https://mp.test/pagar");
+        pagamento.VincularPagamentoExterno("mp-777");
         await _pagamentos.AtualizarAsync(pagamento);
 
         var lista = await _pagamentos.ListarPorOrcamentoAsync(orcamento.Id);
@@ -92,6 +93,8 @@ public class OrcamentoRepositoryTests : IClassFixture<ApiFactory>
         var lido = (await _pagamentos.ObterPorIdAsync(orcamento.Id, pagamento.Id))!;
         lido.Status.Should().Be(StatusPagamento.Pendente);
         lido.ReferenciaExterna.Should().Be("mp-777");
+        lido.PreferenciaId.Should().Be("pref-777");
+        lido.LinkPagamento.Should().Be("https://mp.test/pagar");
         lido.Versao.Should().Be(2);
     }
 

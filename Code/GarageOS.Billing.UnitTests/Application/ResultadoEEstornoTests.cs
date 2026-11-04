@@ -15,6 +15,7 @@ public class ResultadoEEstornoTests
 {
     private readonly Mock<IPagamentoRepository> _pagamentos = new();
     private readonly Mock<IPublicadorDeEventos> _publicador = new();
+    private readonly Mock<IGatewayDePagamento> _gateway = new();
     private readonly Pagamento _pagamento = new(Guid.NewGuid(), Guid.NewGuid(), 300m);
 
     public ResultadoEEstornoTests()
@@ -78,7 +79,7 @@ public class ResultadoEEstornoTests
     {
         _pagamento.AguardarPagamento("mp-2");
         _pagamento.Confirmar();
-        var useCase = new EstornarPagamentoUseCase(_pagamentos.Object);
+        var useCase = new EstornarPagamentoUseCase(_pagamentos.Object, _gateway.Object);
 
         await useCase.ExecutarAsync(_pagamento.OrcamentoId, _pagamento.Id);
         var resposta = await useCase.ExecutarAsync(_pagamento.OrcamentoId, _pagamento.Id);
@@ -88,9 +89,37 @@ public class ResultadoEEstornoTests
     }
 
     [Fact]
+    public async Task Estornar_ComPagamentoNoProvedor_DeveDevolverAntesDeGravar()
+    {
+        _pagamento.AguardarPagamento("pref-3");
+        _pagamento.VincularPagamentoExterno("mp-3");
+        _pagamento.Confirmar();
+
+        await new EstornarPagamentoUseCase(_pagamentos.Object, _gateway.Object).ExecutarAsync(_pagamento.OrcamentoId, _pagamento.Id);
+
+        _gateway.Verify(g => g.EstornarAsync("mp-3", $"estorno-{_pagamento.Id}", It.IsAny<CancellationToken>()), Times.Once);
+        _pagamento.Status.Should().Be(StatusPagamento.Estornado);
+    }
+
+    [Fact]
+    public async Task Estornar_ProvedorFora_NaoDeveMarcarComoEstornado()
+    {
+        _pagamento.AguardarPagamento("pref-4");
+        _pagamento.VincularPagamentoExterno("mp-4");
+        _pagamento.Confirmar();
+        _gateway.Setup(g => g.EstornarAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new GatewayDePagamentoException("fora"));
+
+        var acao = () => new EstornarPagamentoUseCase(_pagamentos.Object, _gateway.Object).ExecutarAsync(_pagamento.OrcamentoId, _pagamento.Id);
+
+        await acao.Should().ThrowAsync<GatewayDePagamentoException>();
+        _pagamento.Status.Should().Be(StatusPagamento.Confirmado);
+    }
+
+    [Fact]
     public async Task Estornar_NaoConfirmado_DeveLancar()
     {
-        var acao = () => new EstornarPagamentoUseCase(_pagamentos.Object).ExecutarAsync(_pagamento.OrcamentoId, _pagamento.Id);
+        var acao = () => new EstornarPagamentoUseCase(_pagamentos.Object, _gateway.Object).ExecutarAsync(_pagamento.OrcamentoId, _pagamento.Id);
 
         await acao.Should().ThrowAsync<TransicaoDeStatusInvalidaException>();
     }
@@ -98,6 +127,6 @@ public class ResultadoEEstornoTests
     [Fact]
     public async Task Estornar_Inexistente_DeveDevolverNull()
     {
-        (await new EstornarPagamentoUseCase(_pagamentos.Object).ExecutarAsync(Guid.NewGuid(), Guid.NewGuid())).Should().BeNull();
+        (await new EstornarPagamentoUseCase(_pagamentos.Object, _gateway.Object).ExecutarAsync(Guid.NewGuid(), Guid.NewGuid())).Should().BeNull();
     }
 }

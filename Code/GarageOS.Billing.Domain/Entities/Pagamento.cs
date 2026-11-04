@@ -6,7 +6,7 @@ namespace GarageOS.Billing.Domain.Entities;
 
 /// <summary>Cobrança de um orçamento aprovado</summary>
 /// <remarks>
-/// A integração com o Mercado Pago entra na etapa 6. Aqui fica o ciclo de vida:
+/// Ciclo de vida da cobrança, independente do provedor:
 ///
 ///   Criado     -> Pendente   | Recusado | Expirado
 ///   Pendente   -> Confirmado | Recusado | Expirado
@@ -29,7 +29,16 @@ public class Pagamento
     public Guid OrdemDeServicoId { get; private set; }
     public decimal Valor { get; private set; }
     public StatusPagamento Status { get; private set; }
+
+    /// <summary>Id do pagamento no provedor, conhecido só depois que o cliente paga</summary>
     public string? ReferenciaExterna { get; private set; }
+
+    /// <summary>Id da cobrança aberta no provedor (a preferência, no Mercado Pago)</summary>
+    public string? PreferenciaId { get; private set; }
+
+    /// <summary>Link que o cliente abre para pagar</summary>
+    public string? LinkPagamento { get; private set; }
+
     public DateTime CriadoEm { get; private set; }
     public DateTime AtualizadoEm { get; private set; }
     public long Versao { get; private set; }
@@ -59,14 +68,25 @@ public class Pagamento
     public static bool TransicaoPermitida(StatusPagamento de, StatusPagamento para) =>
         TransicoesPermitidas[de].Contains(para);
 
-    /// <summary>A cobrança foi registrada no provedor e aguarda o cliente pagar</summary>
-    public void AguardarPagamento(string referenciaExterna)
+    /// <summary>A cobrança foi aberta no provedor e aguarda o cliente pagar</summary>
+    public void AguardarPagamento(string preferenciaId, string? linkPagamento = null)
     {
-        if (string.IsNullOrWhiteSpace(referenciaExterna))
-            throw new ArgumentException("Referência do provedor é obrigatória.", nameof(referenciaExterna));
+        if (string.IsNullOrWhiteSpace(preferenciaId))
+            throw new ArgumentException("Referência da cobrança no provedor é obrigatória.", nameof(preferenciaId));
 
         MudarPara(StatusPagamento.Pendente);
+        PreferenciaId = preferenciaId;
+        LinkPagamento = linkPagamento;
+    }
+
+    /// <summary>Guarda o id do pagamento no provedor, usado depois para estornar</summary>
+    public void VincularPagamentoExterno(string referenciaExterna)
+    {
+        if (string.IsNullOrWhiteSpace(referenciaExterna))
+            throw new ArgumentException("Referência do pagamento no provedor é obrigatória.", nameof(referenciaExterna));
+
         ReferenciaExterna = referenciaExterna;
+        AtualizadoEm = BrasiliaTime.Agora;
     }
 
     public void Confirmar() => MudarPara(StatusPagamento.Confirmado);
@@ -90,7 +110,8 @@ public class Pagamento
     /// <remarks>Uso exclusivo da persistência: não valida transições.</remarks>
     public static Pagamento Restaurar(
         Guid id, Guid orcamentoId, Guid ordemDeServicoId, decimal valor, StatusPagamento status,
-        string? referenciaExterna, DateTime criadoEm, DateTime atualizadoEm, long versao) => new()
+        string? referenciaExterna, DateTime criadoEm, DateTime atualizadoEm, long versao,
+        string? preferenciaId = null, string? linkPagamento = null) => new()
     {
         Id = id,
         OrcamentoId = orcamentoId,
@@ -98,6 +119,8 @@ public class Pagamento
         Valor = valor,
         Status = status,
         ReferenciaExterna = referenciaExterna,
+        PreferenciaId = preferenciaId,
+        LinkPagamento = linkPagamento,
         CriadoEm = criadoEm,
         AtualizadoEm = atualizadoEm,
         Versao = versao

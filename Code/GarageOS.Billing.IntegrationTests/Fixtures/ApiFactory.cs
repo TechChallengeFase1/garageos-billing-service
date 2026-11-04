@@ -17,6 +17,7 @@ namespace GarageOS.Billing.IntegrationTests.Fixtures;
 public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     public const string Tabela = "garageos-testes-billing";
+    public const string SegredoDoWebhook = "segredo-de-teste";
 
     private readonly DynamoDbContainer _dynamo = new DynamoDbBuilder("amazon/dynamodb-local:2.5.4").Build();
 
@@ -29,6 +30,8 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("DynamoDb:TableName", Tabela);
         builder.UseSetting("DynamoDb:CriarTabelaSeAusente", "true");
         builder.UseSetting("Mensageria:Transporte", "InMemory");
+        builder.UseSetting("Pagamentos:Provedor", "Fake");
+        builder.UseSetting("MercadoPago:WebhookSecret", SegredoDoWebhook);
 
         builder.ConfigureServices(services =>
         {

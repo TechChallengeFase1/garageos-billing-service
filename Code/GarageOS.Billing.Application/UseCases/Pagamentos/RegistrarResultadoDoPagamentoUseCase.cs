@@ -10,9 +10,9 @@ namespace GarageOS.Billing.Application.UseCases.Pagamentos;
 
 /// <summary>Registra se o pagamento foi aprovado ou recusado, e avisa a saga</summary>
 /// <remarks>
-/// Hoje é chamado pela rota de simulação; na etapa 6, pelo webhook do Mercado
-/// Pago, que reentrega a mesma notificação mais de uma vez. Por isso é
-/// idempotente: o mesmo resultado repetido não grava nada e publica de novo.
+/// Chamado pelo processamento das notificações do provedor, que reentrega a mesma
+/// notificação mais de uma vez, e pela rota de simulação. Por isso é idempotente:
+/// o mesmo resultado repetido não grava nada e publica de novo.
 /// </remarks>
 public class RegistrarResultadoDoPagamentoUseCase
 {
@@ -34,7 +34,10 @@ public class RegistrarResultadoDoPagamentoUseCase
         if (pagamento.Status != destino)
         {
             if (pagamento.Status == StatusPagamento.Criado)
-                pagamento.AguardarPagamento(request.ReferenciaExterna ?? $"simulado-{pagamento.Id:N}");
+                pagamento.AguardarPagamento($"simulado-{pagamento.Id:N}");
+
+            if (!string.IsNullOrWhiteSpace(request.ReferenciaExterna))
+                pagamento.VincularPagamentoExterno(request.ReferenciaExterna);
 
             if (request.Aprovado)
                 pagamento.Confirmar();

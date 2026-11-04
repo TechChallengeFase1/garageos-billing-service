@@ -5,6 +5,7 @@ using GarageOS.Billing.Application.UseCases.Pagamentos;
 using GarageOS.Billing.Domain.Entities;
 using GarageOS.Billing.Domain.Enums;
 using GarageOS.Billing.Domain.Repositories;
+using GarageOS.Billing.Infrastructure.ExternalServices;
 using GarageOS.Billing.Infrastructure.Mensageria.Consumidores;
 using GarageOS.Billing.UnitTests.Helpers;
 using GarageOS.Contracts.V1;
@@ -41,6 +42,8 @@ public class ConsumidoresTests : IAsyncLifetime
             .AddSingleton(_orcamentos.Object)
             .AddSingleton(_repoPagamentos.Object)
             .AddSingleton(new Mock<IMetricasDeNegocio>().Object)
+            .AddSingleton<IGatewayDePagamento, FakeGatewayDePagamento>()
+            .AddScoped<InvalidarCobrancasUseCase>()
             .AddScoped<GerarOrcamentoUseCase>()
             .AddScoped<EnviarOrcamentoUseCase>()
             .AddScoped<ObterOrcamentoUseCase>()
@@ -104,6 +107,22 @@ public class ConsumidoresTests : IAsyncLifetime
 
         (await _harness.Published.Any<OrcamentoCancelado>(m => m.Context.Message.OrcamentoId == orcamento.Id)).Should().BeTrue();
         orcamento.Status.Should().Be(StatusOrcamento.Cancelado);
+    }
+
+    [Fact]
+    public async Task CancelarOrcamento_ComCobrancaAberta_DeveFecharACobranca()
+    {
+        var orcamento = Fabrica.OrcamentoAprovado();
+        _porOs[orcamento.OrdemDeServicoId] = orcamento;
+        _porId[orcamento.Id] = orcamento;
+        var pagamento = new Pagamento(orcamento.Id, orcamento.OrdemDeServicoId, orcamento.Total);
+        pagamento.AguardarPagamento("pref-9");
+        _pagamentos.Add(pagamento);
+
+        await _harness.Bus.Publish(new CancelarOrcamento(orcamento.OrdemDeServicoId, "Prazo de pagamento expirado"));
+
+        (await _harness.Published.Any<OrcamentoCancelado>(m => m.Context.Message.OrcamentoId == orcamento.Id)).Should().BeTrue();
+        pagamento.Status.Should().Be(StatusPagamento.Expirado);
     }
 
     [Fact]

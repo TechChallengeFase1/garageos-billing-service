@@ -39,6 +39,7 @@ public static class RespostaMapper
         Valor = pagamento.Valor,
         Status = pagamento.Status.ToString(),
         ReferenciaExterna = pagamento.ReferenciaExterna,
+        LinkPagamento = pagamento.LinkPagamento,
         CriadoEm = pagamento.CriadoEm,
         AtualizadoEm = pagamento.AtualizadoEm
     };

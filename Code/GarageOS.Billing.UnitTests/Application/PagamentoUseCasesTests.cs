@@ -1,6 +1,8 @@
 using FluentAssertions;
+using GarageOS.Billing.Application.Abstractions;
 using GarageOS.Billing.Application.UseCases.Pagamentos;
 using GarageOS.Billing.Domain.Entities;
+using GarageOS.Billing.Domain.Enums;
 using GarageOS.Billing.Domain.Exceptions;
 using GarageOS.Billing.Domain.Repositories;
 using GarageOS.Billing.UnitTests.Helpers;
@@ -12,8 +14,15 @@ public class PagamentoUseCasesTests
 {
     private readonly Mock<IOrcamentoRepository> _orcamentos = new();
     private readonly Mock<IPagamentoRepository> _pagamentos = new();
+    private readonly Mock<IGatewayDePagamento> _gateway = new();
 
-    private CriarPagamentoUseCase Criar() => new(_orcamentos.Object, _pagamentos.Object);
+    public PagamentoUseCasesTests()
+    {
+        _gateway.Setup(g => g.CriarCobrancaAsync(It.IsAny<NovaCobranca>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CobrancaCriada("pref-1", "https://mp.test/pagar"));
+    }
+
+    private CriarPagamentoUseCase Criar() => new(_orcamentos.Object, _pagamentos.Object, _gateway.Object);
     private ConsultarPagamentosUseCase Consultar() => new(_orcamentos.Object, _pagamentos.Object);
 
     [Fact]
@@ -27,8 +36,12 @@ public class PagamentoUseCasesTests
 
         criado.Should().BeTrue();
         pagamento.Valor.Should().Be(orcamento.Total);
-        pagamento.Status.Should().Be("Criado");
+        pagamento.Status.Should().Be("Pendente");
+        pagamento.LinkPagamento.Should().Be("https://mp.test/pagar");
         _pagamentos.Verify(r => r.AdicionarAsync(It.IsAny<Pagamento>()), Times.Once);
+        _gateway.Verify(g => g.CriarCobrancaAsync(
+            It.Is<NovaCobranca>(c => c.Valor == orcamento.Total && c.Referencia.StartsWith(orcamento.Id.ToString())),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -43,6 +56,39 @@ public class PagamentoUseCasesTests
 
         criado.Should().BeFalse();
         pagamento.Id.Should().Be(existente.Id);
+        _pagamentos.Verify(r => r.AdicionarAsync(It.IsAny<Pagamento>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Criar_CobrancaJaAbertaNoProvedor_NaoDeveAbrirOutra()
+    {
+        var orcamento = Fabrica.OrcamentoAprovado();
+        var existente = new Pagamento(orcamento.Id, orcamento.OrdemDeServicoId, orcamento.Total);
+        existente.AguardarPagamento("pref-antiga", "https://mp.test/antigo");
+        _orcamentos.Setup(r => r.ObterPorIdAsync(orcamento.Id)).ReturnsAsync(orcamento);
+        _pagamentos.Setup(r => r.ListarPorOrcamentoAsync(orcamento.Id)).ReturnsAsync([existente]);
+
+        var (pagamento, criado) = await Criar().ExecutarAsync(orcamento.Id);
+
+        criado.Should().BeFalse();
+        pagamento.LinkPagamento.Should().Be("https://mp.test/antigo");
+        _gateway.Verify(g => g.CriarCobrancaAsync(It.IsAny<NovaCobranca>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Criar_ProvedorFalhouDaPrimeiraVez_DeveRetomarOMesmoPagamento()
+    {
+        // O pagamento ficou gravado em Criado: a repetição não cria outro.
+        var orcamento = Fabrica.OrcamentoAprovado();
+        var existente = new Pagamento(orcamento.Id, orcamento.OrdemDeServicoId, orcamento.Total);
+        _orcamentos.Setup(r => r.ObterPorIdAsync(orcamento.Id)).ReturnsAsync(orcamento);
+        _pagamentos.Setup(r => r.ListarPorOrcamentoAsync(orcamento.Id)).ReturnsAsync([existente]);
+
+        var (pagamento, _) = await Criar().ExecutarAsync(orcamento.Id);
+
+        pagamento.Id.Should().Be(existente.Id);
+        pagamento.Status.Should().Be("Pendente");
+        _gateway.Verify(g => g.CriarCobrancaAsync(It.Is<NovaCobranca>(c => c.Referencia == $"{orcamento.Id}:{existente.Id}"), It.IsAny<CancellationToken>()), Times.Once);
         _pagamentos.Verify(r => r.AdicionarAsync(It.IsAny<Pagamento>()), Times.Never);
     }
 

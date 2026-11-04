@@ -7,8 +7,9 @@ namespace GarageOS.Billing.Infrastructure.Mensageria.Consumidores;
 /// <summary>Passo da saga: abrir a cobrança do orçamento aprovado</summary>
 /// <remarks>
 /// Idempotente: havendo cobrança em aberto, é ela que volta. O resultado
-/// (confirmado ou recusado) chega depois, pela rota de simulação ou, na etapa
-/// 6, pelo webhook do Mercado Pago.
+/// (confirmado ou recusado) chega depois, pelo webhook do Mercado Pago. Se o
+/// provedor estiver fora, a exceção aciona o retry; persistindo, a mensagem vai
+/// para a fila de erro e o prazo de pagamento da saga faz a compensação.
 /// </remarks>
 public class SolicitarPagamentoConsumer : IConsumer<SolicitarPagamento>
 {

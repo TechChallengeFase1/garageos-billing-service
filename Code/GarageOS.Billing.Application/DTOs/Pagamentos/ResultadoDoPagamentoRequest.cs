@@ -6,6 +6,6 @@ public class ResultadoDoPagamentoRequest
     public bool Aprovado { get; set; }
     public string? Motivo { get; set; }
 
-    /// <summary>Identificador do pagamento no provedor (Mercado Pago, na etapa 6)</summary>
+    /// <summary>Identificador do pagamento no provedor (Mercado Pago)</summary>
     public string? ReferenciaExterna { get; set; }
 }
