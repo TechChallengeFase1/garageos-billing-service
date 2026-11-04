@@ -130,3 +130,18 @@ Pré-requisitos, nesta ordem:
 
 O workflow [`infra.yml`](.github/workflows/infra.yml) faz plan no PR e apply no merge na `main`.
 Depois de recriar o cluster, reaplique: a trust da role IRSA aponta para o OIDC do cluster, que muda.
+
+## Deploy (`k8s/`)
+
+O workflow [`cd.yml`](.github/workflows/cd.yml), disparado à mão por enquanto, gera a imagem no ECR, cria o Secret a partir do Secrets Manager e aplica os manifestos. Os valores de cada ambiente vêm do SSM. Antes dele precisam estar aplicados o `infra/` deste repositório e o `garageos-lambda-auth`, que publica a URL do API Gateway, e o segredo do Mercado Pago precisa estar gravado.
+
+O serviço responde em `{url do API Gateway}/billing/...`: o Traefik escolhe o serviço pelo prefixo e o tira antes de chegar à API.
+
+Para acessar o Swagger:
+
+```bash
+aws eks update-kubeconfig --name garageos-producao --region us-east-1
+kubectl port-forward -n garageos-billing svc/garageos-billing 8081:80
+```
+
+Depois abra <http://localhost:8081/swagger>.
