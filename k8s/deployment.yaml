@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: garageos-billing
+  namespace: garageos-billing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: garageos-billing
+  template:
+    metadata:
+      labels:
+        app: garageos-billing
+    spec:
+      serviceAccountName: billing
+      containers:
+        - name: api
+          # A pipeline troca pelo ECR com a tag do commit.
+          image: __IMAGE__
+          ports:
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - configMapRef:
+                name: garageos-billing-config
+            - secretRef:
+                name: garageos-billing-secret
+          # /health/ready consulta o DynamoDB: com a tabela fora, o pod sai do
+          # balanceamento sem ser reiniciado. /health/live nao consulta nada.
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

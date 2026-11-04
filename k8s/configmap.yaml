@@ -1,0 +1,19 @@
+# Configuracao nao sensivel. Os valores __ENTRE_SUBLINHADOS__ vem do SSM, pela
+# pipeline. Segredos ficam no Secret garageos-billing-secret, criado no deploy.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: garageos-billing-config
+  namespace: garageos-billing
+data:
+  ASPNETCORE_ENVIRONMENT: Production
+  AWS_REGION: us-east-1
+  DynamoDb__TableName: __DYNAMODB_TABLE__
+  Mensageria__Transporte: AmazonSqs
+  Mensageria__Ambiente: producao
+  Pagamentos__Provedor: MercadoPago
+  # source_news=webhooks evita o aviso antigo (IPN), que nao tem assinatura.
+  MercadoPago__NotificationUrl: "__APIGW_URL__/billing/api/webhooks/mercadopago?source_news=webhooks"
+  # Ligado para o teste de aceite, acessado por port-forward.
+  Swagger__Enabled: "true"
+  NEW_RELIC_APP_NAME: garageos-billing
