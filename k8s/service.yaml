@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: garageos-billing
+  namespace: garageos-billing
+spec:
+  selector:
+    app: garageos-billing
+  ports:
+    - port: 80
+      targetPort: http
+      name: http
