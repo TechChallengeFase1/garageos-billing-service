@@ -23,10 +23,11 @@ services:
       Swagger__Enabled: "true"
       # Sem credenciais o provedor e falso: o resultado do pagamento vem da rota
       # /simular. Para usar o sandbox, defina PAGAMENTOS_PROVEDOR=MercadoPago e
-      # MERCADOPAGO_ACCESS_TOKEN no .env (nunca versionado).
+      # as variaveis MERCADOPAGO_* no .env (nunca versionado).
       Pagamentos__Provedor: ${PAGAMENTOS_PROVEDOR:-Fake}
       MercadoPago__AccessToken: ${MERCADOPAGO_ACCESS_TOKEN:-}
       MercadoPago__WebhookSecret: ${MERCADOPAGO_WEBHOOK_SECRET:-}
+      MercadoPago__NotificationUrl: ${MERCADOPAGO_NOTIFICATION_URL:-}
       # Rodando um servico sozinho, a mensageria fica em memoria: os eventos
       # da saga nao saem do processo. Para o fluxo entre servicos, aponte os
       # tres para o mesmo LocalStack (Mensageria__Transporte=AmazonSqs e
