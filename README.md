@@ -139,7 +139,7 @@ Depois de recriar o cluster, reaplique: a trust da role IRSA aponta para o OIDC 
 
 ## Deploy (`k8s/`)
 
-O workflow [`cd.yml`](.github/workflows/cd.yml), disparado à mão por enquanto, gera a imagem no ECR, cria o Secret a partir do Secrets Manager e aplica os manifestos. Os valores de cada ambiente vêm do SSM. Antes dele precisam estar aplicados o `infra/` deste repositório e o `garageos-lambda-auth`, que publica a URL do API Gateway, e o segredo do Mercado Pago precisa estar gravado.
+A CI chama o workflow [`cd.yml`](.github/workflows/cd.yml) depois que build, testes e Sonar passam na `main`: gera a imagem no ECR, cria o Secret a partir do Secrets Manager, aplica os manifestos e confere a saúde pelo API Gateway. Com a infra destruída, ele avisa e pula o deploy. Os valores de cada ambiente vêm do SSM. Antes dele precisam estar aplicados o `infra/` deste repositório e o `garageos-lambda-auth`, que publica a URL do API Gateway, e o segredo do Mercado Pago precisa estar gravado.
 
 O serviço responde em `{url do API Gateway}/billing/...`: o Traefik escolhe o serviço pelo prefixo e o tira antes de chegar à API.
 
