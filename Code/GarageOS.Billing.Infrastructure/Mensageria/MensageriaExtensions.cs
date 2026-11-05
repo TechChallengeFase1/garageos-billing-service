@@ -1,6 +1,8 @@
+using System.Reflection;
 using Amazon.SimpleNotificationService;
 using Amazon.SQS;
 using GarageOS.Billing.Infrastructure.Mensageria.Consumidores;
+using GarageOS.Contracts.V1;
 using MassTransit;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -68,6 +70,7 @@ public static class MensageriaExtensions
 
                 cfg.MessageTopology.SetEntityNameFormatter(
                     new PrefixEntityNameFormatter(cfg.MessageTopology.EntityNameFormatter, $"{opcoes.Prefixo}-"));
+                PrefixarTopicosDosContratos(cfg, opcoes.Prefixo);
 
                 cfg.UseMessageRetry(r => r.Intervals(500, 2000, 5000, 15000));
                 cfg.ConfigureEndpoints(context);
@@ -79,4 +82,24 @@ public static class MensageriaExtensions
 
         return services;
     }
+
+    /// <summary>Põe o prefixo do ambiente nos tópicos dos contratos</summary>
+    /// <remarks>
+    /// O [EntityName] tem prioridade sobre o formatador acima, que por isso só vale
+    /// para as mensagens sem o atributo, como as de falha (Fault). Sem isto, o tópico
+    /// sai sem prefixo, e a role do pod recusa: ela só libera garageos-{ambiente}-*.
+    /// </remarks>
+    public static void PrefixarTopicosDosContratos(IAmazonSqsBusFactoryConfigurator cfg, string prefixo)
+    {
+        var definir = typeof(MensageriaExtensions).GetMethod(nameof(DefinirTopico), BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        foreach (var tipo in typeof(GerarOrcamento).Assembly.GetTypes().Where(t => t.Namespace == typeof(GerarOrcamento).Namespace))
+        {
+            if (tipo.GetCustomAttribute<EntityNameAttribute>() is { } atributo)
+                definir.MakeGenericMethod(tipo).Invoke(null, [cfg, $"{prefixo}-{atributo.EntityName}"]);
+        }
+    }
+
+    private static void DefinirTopico<T>(IAmazonSqsBusFactoryConfigurator cfg, string nome) where T : class =>
+        cfg.Message<T>(m => m.SetEntityName(nome));
 }

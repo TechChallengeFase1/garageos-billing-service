@@ -22,6 +22,8 @@ public class MercadoPagoGateway : IGatewayDePagamento
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        // Sem isto o + do fuso sai escapado, e o Mercado Pago responde error_parsing_date.
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
     };
 
