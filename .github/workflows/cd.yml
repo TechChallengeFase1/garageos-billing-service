@@ -1,11 +1,18 @@
 name: CD
 
-# Imagem no ECR e deploy no EKS. So roda a mao por enquanto: um merge com a infra
-# fora do ar falharia. O disparo no merge entra na etapa 8.
+# Imagem no ECR e deploy no EKS, depois que a CI da main termina verde. Tambem roda
+# a mao, em Actions > CD > Run workflow.
+#
+# A infra e ligada e destruida para economizar: sem o cluster, o job "Verificar"
+# so avisa e o deploy e pulado, em vez de falhar a cada merge.
 #
 # Nada de endereco ou segredo escrito aqui: tudo vem do SSM e do Secrets Manager.
 
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -16,14 +23,46 @@ env:
   AWS_REGION: us-east-1
   AWS_ROLE: arn:aws:iam::266380777968:role/garageos-github-actions
   AMBIENTE: producao
+  SERVICO: billing
+  # No workflow_run, github.sha e o ultimo commit da main, nao o que passou na CI.
+  COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
 
 concurrency:
   group: cd-billing
   cancel-in-progress: false
 
 jobs:
+  verificar:
+    name: Verificar
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      no_ar: ${{ steps.infra.outputs.no_ar }}
+    steps:
+      - name: Autenticar na AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE }}
+          role-session-name: cd-billing-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ver se a infra esta no ar
+        id: infra
+        run: |
+          if aws ssm get-parameter --name "/garageos/${AMBIENTE}/eks/cluster-name" >/dev/null 2>&1 \
+            && aws ssm get-parameter --name "/garageos/${AMBIENTE}/services/${SERVICO}/ecr-url" >/dev/null 2>&1; then
+            echo "no_ar=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no_ar=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Infra fora do ar: deploy pulado."
+            echo "Infra fora do ar: deploy pulado." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   imagem:
     name: Imagem
+    needs: verificar
+    if: needs.verificar.outputs.no_ar == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
@@ -31,6 +70,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ env.COMMIT }}
 
       - name: Autenticar na AWS via OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -46,10 +87,10 @@ jobs:
       - name: Build e push
         id: push
         run: |
-          ECR=$(aws ssm get-parameter --name "/garageos/${AMBIENTE}/services/billing/ecr-url" --query Parameter.Value --output text)
-          IMAGE="$ECR:$GITHUB_SHA"
+          ECR=$(aws ssm get-parameter --name "/garageos/${AMBIENTE}/services/${SERVICO}/ecr-url" --query Parameter.Value --output text)
+          IMAGE="$ECR:$COMMIT"
 
-          if aws ecr describe-images --repository-name "${ECR#*/}" --image-ids imageTag="$GITHUB_SHA" >/dev/null 2>&1; then
+          if aws ecr describe-images --repository-name "${ECR#*/}" --image-ids imageTag="$COMMIT" >/dev/null 2>&1; then
             echo "Imagem do commit ja existe."
           else
             docker build -t "$IMAGE" .
@@ -62,11 +103,13 @@ jobs:
     name: Deploy
     needs: imagem
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     environment: producao
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ env.COMMIT }}
 
       - name: Autenticar na AWS via OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -87,10 +130,11 @@ jobs:
 
           {
             echo "cluster=$(ler "/garageos/${AMBIENTE}/eks/cluster-name")"
+            echo "namespace=$(ler "/garageos/${AMBIENTE}/eks/namespace/${SERVICO}")"
             echo "app_secret=$(ler "/garageos/app/secret-arn")"
-            echo "mp_secret=$(ler "/garageos/${AMBIENTE}/services/billing/mercadopago-secret-arn")"
-            echo "irsa=$(ler "/garageos/${AMBIENTE}/services/billing/irsa-role-arn")"
-            echo "tabela=$(ler "/garageos/${AMBIENTE}/services/billing/dynamodb-table")"
+            echo "irsa=$(ler "/garageos/${AMBIENTE}/services/${SERVICO}/irsa-role-arn")"
+            echo "mp_secret=$(ler "/garageos/${AMBIENTE}/services/${SERVICO}/mercadopago-secret-arn")"
+            echo "tabela=$(ler "/garageos/${AMBIENTE}/services/${SERVICO}/dynamodb-table")"
             echo "apigw=$(ler "/garageos/${AMBIENTE}/apigw/url")"
           } >> "$GITHUB_OUTPUT"
 
@@ -103,24 +147,26 @@ jobs:
       # Secret do Kubernetes. O par dry-run + apply cria ou atualiza.
       - name: Criar o Secret a partir do Secrets Manager
         run: |
-          APP_JSON=$(aws secretsmanager get-secret-value --secret-id "${{ steps.infra.outputs.app_secret }}" --query SecretString --output text)
+          segredo() { aws secretsmanager get-secret-value --secret-id "$1" --query SecretString --output text; }
 
-          if ! MP_JSON=$(aws secretsmanager get-secret-value --secret-id "${{ steps.infra.outputs.mp_secret }}" --query SecretString --output text); then
-            echo "::error::Grave as credenciais em garageos-producao-billing/mercadopago antes do deploy (ver README)."
-            exit 1
-          fi
-
+          APP_JSON=$(segredo "${{ steps.infra.outputs.app_secret }}")
           JWT=$(printf '%s' "$APP_JSON" | jq -r .jwtSecretKey)
           ISSUER=$(printf '%s' "$APP_JSON" | jq -r .jwtIssuer)
           AUDIENCE=$(printf '%s' "$APP_JSON" | jq -r .jwtAudience)
           NEWRELIC=$(printf '%s' "$APP_JSON" | jq -r '.newRelicLicenseKey // empty')
-          TOKEN=$(printf '%s' "$MP_JSON" | jq -r '.accessToken // empty')
-          WEBHOOK=$(printf '%s' "$MP_JSON" | jq -r '.webhookSecret // empty')
 
           echo "::add-mask::$JWT"
+          [ -n "$NEWRELIC" ] && echo "::add-mask::$NEWRELIC"
+
+          if ! MP_JSON=$(segredo "${{ steps.infra.outputs.mp_secret }}"); then
+            echo "::error::Grave as credenciais em garageos-producao-billing/mercadopago antes do deploy (ver README)."
+            exit 1
+          fi
+
+          TOKEN=$(printf '%s' "$MP_JSON" | jq -r '.accessToken // empty')
+          WEBHOOK=$(printf '%s' "$MP_JSON" | jq -r '.webhookSecret // empty')
           echo "::add-mask::$TOKEN"
           echo "::add-mask::$WEBHOOK"
-          [ -n "$NEWRELIC" ] && echo "::add-mask::$NEWRELIC"
 
           # Sem a assinatura, todo webhook seria recusado com 401: melhor parar aqui.
           if [ -z "$TOKEN" ] || [ -z "$WEBHOOK" ]; then
@@ -129,7 +175,7 @@ jobs:
           fi
 
           kubectl create secret generic garageos-billing-secret \
-            --namespace garageos-billing \
+            --namespace "${{ steps.infra.outputs.namespace }}" \
             --from-literal=Jwt__SecretKey="$JWT" \
             --from-literal=Jwt__Issuer="$ISSUER" \
             --from-literal=Jwt__Audience="$AUDIENCE" \
@@ -152,13 +198,28 @@ jobs:
       # o Deployment, e o pod seguiria com as credenciais antigas.
       - name: Aplicar e aguardar
         run: |
+          NS="${{ steps.infra.outputs.namespace }}"
           kubectl apply -f k8s/
-          kubectl rollout restart deployment/garageos-billing -n garageos-billing
+          kubectl rollout restart deployment/garageos-billing -n "$NS"
 
-          if ! kubectl rollout status deployment/garageos-billing -n garageos-billing --timeout=300s; then
+          if ! kubectl rollout status deployment/garageos-billing -n "$NS" --timeout=300s; then
             echo "::error::O rollout falhou. Eventos e log abaixo."
-            kubectl get pods -n garageos-billing
-            kubectl describe pods -n garageos-billing -l app=garageos-billing | tail -30
-            kubectl logs -n garageos-billing -l app=garageos-billing --tail=50 || true
+            kubectl get pods -n "$NS"
+            kubectl describe pods -n "$NS" -l app=garageos-billing | tail -30
+            kubectl logs -n "$NS" -l app=garageos-billing --tail=50 || true
             exit 1
           fi
+
+      # Pelo mesmo caminho do trafego real: NLB, Traefik, prefixo e pod.
+      - name: Smoke test
+        run: |
+          NLB=$(kubectl get svc traefik -n traefik -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          for i in $(seq 1 12); do
+            if curl -fsS --max-time 10 "http://$NLB/billing/health/ready" >/dev/null; then
+              echo "Saudavel pelo NLB." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::/billing/health/ready nao respondeu pelo NLB."
+          exit 1
