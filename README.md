@@ -116,6 +116,12 @@ dotnet test Code/GarageOS.Billing.UnitTests           # sem dependências
 dotnet test Code/GarageOS.Billing.IntegrationTests    # precisa de Docker (DynamoDB Local via Testcontainers)
 ```
 
+### Cobertura
+
+**99,0% de linhas**, somando os testes unitários, de integração. A CI publica o relatório HTML no artifact `cobertura`, mostra o resumo na execução e falha abaixo de 80%.
+
+Ficam de fora só as migrations, geradas pelo EF, e o `Program.cs`, que só liga as peças e é exercitado pelos testes de integração. As regras estão em [`coverlet.runsettings`](Code/coverlet.runsettings).
+
 ## Infraestrutura (`infra/`)
 
 Terraform com o que é só deste serviço: repositório ECR, banco, role IRSA dos pods e
