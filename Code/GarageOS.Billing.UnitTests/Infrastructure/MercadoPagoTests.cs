@@ -51,6 +51,10 @@ public class MercadoPagoGatewayTests
         _handler.Pedido.RequestUri!.AbsolutePath.Should().Be("/checkout/preferences");
         _handler.Pedido.Headers.Authorization!.ToString().Should().Be("Bearer TOKEN");
 
+        // O Mercado Pago não entende datas com o + escapado (+): vale o texto cru.
+        _handler.Corpo.Should().NotContain("\u");
+        _handler.Corpo.Should().MatchRegex(@"""expiration_date_to"":""[^""]+\+00:00""");
+
         var json = JsonDocument.Parse(_handler.Corpo!).RootElement;
         json.GetProperty("external_reference").GetString().Should().Be("orc:pag");
         json.GetProperty("notification_url").GetString().Should().Be("https://api.test/webhook");
