@@ -33,6 +33,10 @@ public class WebhooksController : ControllerBase
     /// API dele; o corpo da notificação só indica qual pagamento mudou.
     /// </remarks>
     /// <param name="corpo">Notificação; o id do pagamento também vem na query data.id</param>
+    /// <param name="dataId">Id do pagamento, coberto pela assinatura</param>
+    /// <param name="tipoNaQuery">Tipo da notificação; só "payment" interessa</param>
+    /// <param name="assinatura">Cabeçalho x-signature</param>
+    /// <param name="requestId">Cabeçalho x-request-id, parte do texto assinado</param>
     /// <response code="200">Notificação aceita</response>
     /// <response code="401">Assinatura inválida</response>
     /// <response code="503">Mercado Pago indisponível; ele reentrega depois</response>
@@ -42,14 +46,16 @@ public class WebhooksController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> MercadoPago(
-        [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] NotificacaoMercadoPago? corpo)
+        [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] NotificacaoMercadoPago? corpo,
+        [FromQuery(Name = "data.id")] string? dataId = null,
+        [FromQuery(Name = "type")] string? tipoNaQuery = null,
+        [FromHeader(Name = "x-signature")] string? assinatura = null,
+        [FromHeader(Name = "x-request-id")] string? requestId = null)
     {
         // A assinatura cobre o data.id da query. Só ele é usado adiante.
-        string? dataId = Request.Query["data.id"];
-        string? tipo = Request.Query["type"];
-        tipo ??= corpo?.Type;
+        var tipo = tipoNaQuery ?? corpo?.Type;
 
-        if (!_validador.Valido(Request.Headers["x-signature"], Request.Headers["x-request-id"], dataId))
+        if (!_validador.Valido(assinatura, requestId, dataId))
         {
             _logger.LogWarning("Notificacao do Mercado Pago recusada: assinatura invalida");
             return Unauthorized();

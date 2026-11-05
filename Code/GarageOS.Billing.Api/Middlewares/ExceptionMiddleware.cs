@@ -72,6 +72,6 @@ public class ExceptionMiddleware
             timestamp = BrasiliaTime.Agora
         };
 
-        await context.Response.WriteAsync(JsonSerializer.Serialize(resposta, JsonOptions));
+        , context.RequestAborted);
     }
 }
