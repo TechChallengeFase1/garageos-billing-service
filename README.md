@@ -1,5 +1,7 @@
 # garageos-billing-service
 
+[![CI](https://github.com/TechChallengeFase1/garageos-billing-service/actions/workflows/ci.yml/badge.svg)](https://github.com/TechChallengeFase1/garageos-billing-service/actions/workflows/ci.yml) [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=TechChallengeFase1_garageos-billing-service&metric=alert_status)](https://sonarcloud.io/summary/overall?id=TechChallengeFase1_garageos-billing-service) [![Cobertura](https://sonarcloud.io/api/project_badges/measure?project=TechChallengeFase1_garageos-billing-service&metric=coverage)](https://sonarcloud.io/component_measures?id=TechChallengeFase1_garageos-billing-service&metric=coverage) [![Bugs](https://sonarcloud.io/api/project_badges/measure?project=TechChallengeFase1_garageos-billing-service&metric=bugs)](https://sonarcloud.io/summary/overall?id=TechChallengeFase1_garageos-billing-service) [![Vulnerabilidades](https://sonarcloud.io/api/project_badges/measure?project=TechChallengeFase1_garageos-billing-service&metric=vulnerabilities)](https://sonarcloud.io/summary/overall?id=TechChallengeFase1_garageos-billing-service)
+
 Microsserviço **Billing** do GarageOS — Tech Challenge Fase 4.
 
 Dono dos orçamentos das ordens de serviço e das cobranças. É o serviço com o banco **não relacional** da solução.
@@ -7,10 +9,12 @@ Dono dos orçamentos das ordens de serviço e das cobranças. É o serviço com 
 | | |
 |---|---|
 | Banco | Amazon DynamoDB, tabela única on-demand (ADR 0007) |
-| Mensageria | Amazon SQS/SNS com MassTransit 8.x (etapa 5) |
+| Mensageria | Amazon SQS/SNS com MassTransit 8.5 |
 | Pagamento | Mercado Pago, Checkout Pro |
 | Papel na saga | Participante: gera, cancela e cobra o orçamento |
 | Namespace no EKS | `garageos-billing` |
+
+A saga é **orquestrada** pelo OS Service: este serviço só reage aos comandos e responde com eventos. Por que orquestrada, e não coreografada: [README do OS Service](https://github.com/TechChallengeFase1/garageos-os-service#saga-pattern-por-que-orquestração).
 
 As decisões de arquitetura estão nos ADRs 0004 a 0007 em
 [`garageos-os-service/docs/adrs`](https://github.com/TechChallengeFase1/garageos-os-service/tree/main/docs/adrs).
@@ -98,7 +102,7 @@ aws secretsmanager put-secret-value --secret-id garageos-producao-billing/mercad
 
 ### Testar no sandbox
 
-Abra o `linkPagamento` numa janela anônima, logado com a conta **compradora** de teste (a vendedora não pode pagar a si mesma). Cartão Mastercard `5031 4332 1540 6351`, CVV `123`, validade `11/30`, CPF `12345678909`. O nome no cartão decide o resultado: `APRO` aprova, `OTHE` recusa.
+Abra o `linkPagamento` numa janela anônima, logado com a conta **compradora** de teste (a vendedora não pode pagar a si mesma). Use o cartão de teste do painel (Suas integrações → sua aplicação → Cartões de teste), CPF `12345678909`, com o nome `APRO` para aprovar ou `OTHE` para recusar.
 
 ## Como rodar localmente
 
@@ -121,6 +125,12 @@ dotnet test Code/GarageOS.Billing.IntegrationTests    # precisa de Docker (Dynam
 **99,0% de linhas**, somando os testes unitários, de integração. A CI publica o relatório HTML no artifact `cobertura`, mostra o resumo na execução e falha abaixo de 80%.
 
 Ficam de fora só as migrations, geradas pelo EF, e o `Program.cs`, que só liga as peças e é exercitado pelos testes de integração. As regras estão em [`coverlet.runsettings`](Code/coverlet.runsettings).
+
+## Observabilidade
+
+No New Relic com nome próprio (`garageos-billing`). O `X-Correlation-Id` de quem iniciou a operação chega
+em cada mensagem e volta aos logs (`CorrelationId`, `OrdemDeServicoId`, `MessageType`) e aos eventos de
+negócio. Detalhes e o dashboard da saga: [observabilidade](https://github.com/TechChallengeFase1/garageos-os-service/tree/main/docs/observabilidade).
 
 ## Infraestrutura (`infra/`)
 
