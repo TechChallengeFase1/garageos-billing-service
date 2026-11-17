@@ -132,6 +132,28 @@ No New Relic com nome próprio (`garageos-billing`). O `X-Correlation-Id` de que
 em cada mensagem e volta aos logs (`CorrelationId`, `OrdemDeServicoId`, `MessageType`) e aos eventos de
 negócio. Detalhes e o dashboard da saga: [observabilidade](https://github.com/TechChallengeFase1/garageos-os-service/tree/main/docs/observabilidade).
 
+## API, BDD e proteção da `main`
+
+**Swagger:** em `/swagger`. Local: <http://localhost:8081/swagger>. No cluster, por port-forward (ver Deploy).
+
+**Postman:** a coleção ponta a ponta, pelo API Gateway, fica no OS Service:
+[GarageOS.Fase4.postman_collection.json](https://github.com/TechChallengeFase1/garageos-os-service/blob/main/Code/Postman/GarageOS.Fase4.postman_collection.json). As pastas deste serviço são `04 - Billing: orçamento e cobrança` e os dois cenários de compensação. Ela foi executada
+com o Newman contra o cluster, sem falhas.
+
+**BDD:** o fluxo completo fica no OS Service, que orquestra a saga:
+[CicloDeVidaDaOS.feature](https://github.com/TechChallengeFase1/garageos-os-service/blob/main/Code/GarageOS.OsService.Bdd/Features/CicloDeVidaDaOS.feature), em Reqnroll, com 5 cenários (caminho feliz, orçamento recusado, peça
+indisponível, pagamento recusado e execução com falha). Neste serviço, os cenários cobrem o papel dele na
+saga: gera e envia o orçamento, recebe a aprovação ou a recusa, abre a cobrança e estorna quando a execução falha.
+
+### Proteção da `main`
+
+Regra `MainProtect` na `main`:
+
+- alteração só por pull request, sem push direto, sem force-push e sem apagar a branch;
+- o check `Build and tests` é obrigatório para o merge. Ele roda build, testes, o Quality Gate do SonarCloud e a trava de 80% de cobertura, então teste quebrado ou gate reprovado não entram.
+
+Evidência: um PR com teste quebrado de propósito ficou bloqueado e foi fechado sem merge ([garageos-execucao-service#6](https://github.com/TechChallengeFase1/garageos-execucao-service/pull/6)).
+
 ## Infraestrutura (`infra/`)
 
 Terraform com o que é só deste serviço: repositório ECR, banco, role IRSA dos pods e
